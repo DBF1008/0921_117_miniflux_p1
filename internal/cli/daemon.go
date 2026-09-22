@@ -95,8 +95,13 @@ func startDaemon(store *storage.Storage) {
 	}
 
 	slog.Debug("Shutting down worker pool...")
-	pool.Shutdown()
-	slog.Debug("Worker pool shut down.")
+	poolCtx, cancelPool := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelPool()
+	if err := pool.Shutdown(poolCtx); err != nil {
+		slog.Warn("Worker pool shutdown timed out, some jobs may not have completed", slog.Any("error", err))
+	} else {
+		slog.Debug("Worker pool shut down.")
+	}
 
 	slog.Debug("Process gracefully stopped")
 }

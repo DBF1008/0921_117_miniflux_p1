@@ -4,6 +4,7 @@
 package worker // import "miniflux.app/v2/internal/worker"
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"time"
@@ -20,15 +21,30 @@ type worker struct {
 	store *storage.Storage
 }
 
-// Run processes feed refresh jobs from the channel until it is closed.
-func (w *worker) Run(c <-chan model.Job, wg *sync.WaitGroup) {
+// Run processes feed refresh jobs from the channel until it is closed or the
+// context is canceled.
+func (w *worker) Run(ctx context.Context, c <-chan model.Job, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	slog.Debug("Worker started",
 		slog.Int("worker_id", w.id),
 	)
 
-	for job := range c {
+	for {
+		var job model.Job
+		select {
+		case <-ctx.Done():
+			slog.Debug("Worker stopped by context cancellation",
+				slog.Int("worker_id", w.id),
+			)
+			return
+		case receivedJob, ok := <-c:
+			if !ok {
+				return
+			}
+			job = receivedJob
+		}
+
 		slog.Debug("Job received by worker",
 			slog.Int("worker_id", w.id),
 			slog.Int64("user_id", job.UserID),
@@ -37,7 +53,7 @@ func (w *worker) Run(c <-chan model.Job, wg *sync.WaitGroup) {
 		)
 
 		startTime := time.Now()
-		localizedError := feedHandler.RefreshFeed(w.store, job.UserID, job.FeedID, false)
+		localizedError := feedHandler.RefreshFeed(ctx, w.store, job.UserID, job.FeedID, false)
 
 		if config.Opts.HasMetricsCollector() {
 			status := metric.StatusSuccess
