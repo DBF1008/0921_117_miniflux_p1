@@ -20,6 +20,11 @@ import (
 	"miniflux.app/v2/internal/worker"
 )
 
+// workerPoolShutdownTimeout bounds how long the process waits for in-flight
+// feed refreshes to stop after SIGTERM/SIGINT. Jobs are cancelled when the
+// shutdown begins; a stuck job must not block the process forever.
+const workerPoolShutdownTimeout = 10 * time.Second
+
 func startDaemon(store *storage.Storage) {
 	slog.Debug("Starting daemon...")
 
@@ -95,8 +100,14 @@ func startDaemon(store *storage.Storage) {
 	}
 
 	slog.Debug("Shutting down worker pool...")
-	pool.Shutdown()
-	slog.Debug("Worker pool shut down.")
+	if pool.Shutdown(workerPoolShutdownTimeout) {
+		slog.Debug("Worker pool shut down.")
+	} else {
+		slog.Error("Worker pool did not stop within the shutdown timeout; forcing process exit",
+			slog.Duration("timeout", workerPoolShutdownTimeout),
+		)
+		os.Exit(1)
+	}
 
 	slog.Debug("Process gracefully stopped")
 }

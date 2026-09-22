@@ -45,7 +45,9 @@ func feedScheduler(store *storage.Storage, pool *worker.Pool, frequency time.Dur
 			slog.Error("Unable to fetch jobs from database", slog.Any("error", err))
 		} else if len(jobs) > 0 {
 			slog.Debug("Feed URLs in this batch", slog.Any("feed_urls", jobs.FeedURLs()))
-			pool.Push(jobs)
+			if err := pool.Push(jobs); err != nil {
+				slog.Warn("Unable to enqueue feed refresh jobs", slog.Any("error", err))
+			}
 		}
 	}
 }

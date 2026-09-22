@@ -18,7 +18,7 @@ import (
 func (h *handler) refreshFeed(w http.ResponseWriter, r *http.Request) {
 	feedID := request.RouteInt64Param(r, "feedID")
 	forceRefresh := request.QueryBoolParam(r, "forceRefresh", false)
-	if localizedError := feedHandler.RefreshFeed(h.store, request.UserID(r), feedID, forceRefresh); localizedError != nil {
+	if localizedError := feedHandler.RefreshFeed(r.Context(), h.store, request.UserID(r), feedID, forceRefresh); localizedError != nil {
 		slog.Warn("Unable to refresh feed",
 			slog.Int64("user_id", request.UserID(r)),
 			slog.Int64("feed_id", feedID),
@@ -58,7 +58,11 @@ func (h *handler) refreshAllFeeds(w http.ResponseWriter, r *http.Request) {
 			slog.Int("nb_jobs", len(jobs)),
 		)
 
-		go h.pool.Push(jobs)
+		go func() {
+			if pushErr := h.pool.Push(jobs); pushErr != nil {
+				slog.Warn("Unable to enqueue feed refresh jobs", slog.Any("error", pushErr))
+			}
+		}()
 
 		sess.MarkForceRefreshed()
 		sess.SetSuccessMessage(printer.Print("alert.background_feed_refresh"))

@@ -183,7 +183,11 @@ func (h *handler) refreshCategoryHandler(w http.ResponseWriter, r *http.Request)
 		slog.Int("nb_jobs", len(jobs)),
 	)
 
-	go h.pool.Push(jobs)
+	go func() {
+		if pushErr := h.pool.Push(jobs); pushErr != nil {
+			slog.Warn("Unable to enqueue feed refresh jobs", slog.Any("error", pushErr))
+		}
+	}()
 
 	response.NoContent(w, r)
 }

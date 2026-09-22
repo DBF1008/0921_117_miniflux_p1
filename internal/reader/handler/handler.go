@@ -5,6 +5,7 @@ package handler // import "miniflux.app/v2/internal/reader/handler"
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"time"
@@ -203,8 +204,10 @@ func CreateFeed(store *storage.Storage, userID int64, feedCreationRequest *model
 	return subscription, nil
 }
 
-// RefreshFeed refreshes a feed.
-func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool) *locale.LocalizedErrorWrapper {
+// RefreshFeed refreshes a feed. The context is propagated to the outgoing
+// HTTP request so the refresh can be interrupted (for example during the
+// worker pool shutdown).
+func RefreshFeed(ctx context.Context, store *storage.Storage, userID, feedID int64, forceRefresh bool) *locale.LocalizedErrorWrapper {
 	slog.Debug("Begin feed refresh process",
 		slog.Int64("user_id", userID),
 		slog.Int64("feed_id", feedID),
@@ -233,6 +236,7 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 	originalFeed.ScheduleNextCheck(weeklyEntryCount, time.Duration(0))
 
 	requestBuilder := fetcher.NewRequestBuilder()
+	requestBuilder.WithContext(ctx)
 	requestBuilder.WithUsernameAndPassword(originalFeed.Username, originalFeed.Password)
 	requestBuilder.WithUserAgent(originalFeed.UserAgent, config.Opts.HTTPClientUserAgent())
 	requestBuilder.WithCookie(originalFeed.Cookie)
@@ -326,6 +330,14 @@ func RefreshFeed(store *storage.Storage, userID, feedID int64, forceRefresh bool
 		)
 
 		originalFeed.Entries = updatedFeed.Entries
+
+		// The worker pool may have been shut down while the feed was being
+		// fetched and parsed; avoid processing and persisting a cancelled job.
+		if ctx.Err() != nil {
+			localizedError := locale.NewLocalizedErrorWrapper(ctx.Err(), "error.http_client_error", ctx.Err())
+			return getTranslatedLocalizedError(store, userID, originalFeed, localizedError)
+		}
+
 		processor.ProcessFeedEntries(store, originalFeed, userID, forceRefresh)
 
 		// We don't update existing entries when the crawler is enabled (we crawl only inexisting entries).

@@ -64,7 +64,7 @@ func (h *handler) refreshFeedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	localizedError := feedHandler.RefreshFeed(h.store, userID, feedID, false)
+	localizedError := feedHandler.RefreshFeed(r.Context(), h.store, userID, feedID, false)
 	if localizedError != nil {
 		response.JSONServerError(w, r, localizedError.Error())
 		return
@@ -94,7 +94,11 @@ func (h *handler) refreshAllFeedsHandler(w http.ResponseWriter, r *http.Request)
 		slog.Int("nb_jobs", len(jobs)),
 	)
 
-	go h.pool.Push(jobs)
+	go func() {
+		if pushErr := h.pool.Push(jobs); pushErr != nil {
+			slog.Warn("Unable to enqueue feed refresh jobs", slog.Any("error", pushErr))
+		}
+	}()
 
 	response.NoContent(w, r)
 }

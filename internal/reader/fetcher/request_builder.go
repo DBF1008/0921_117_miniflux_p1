@@ -35,6 +35,7 @@ var (
 
 type RequestBuilder struct {
 	headers            http.Header
+	ctx                context.Context
 	clientProxyURL     *url.URL
 	clientTimeout      time.Duration
 	useClientProxy     bool
@@ -49,8 +50,15 @@ type RequestBuilder struct {
 func NewRequestBuilder() *RequestBuilder {
 	return &RequestBuilder{
 		headers:       make(http.Header),
+		ctx:           context.Background(),
 		clientTimeout: defaultHTTPClientTimeout,
 	}
+}
+
+// WithContext sets the context used for the outgoing HTTP request.
+func (r *RequestBuilder) WithContext(ctx context.Context) *RequestBuilder {
+	r.ctx = ctx
+	return r
 }
 
 func (r *RequestBuilder) WithHeader(key, value string) *RequestBuilder {
@@ -249,7 +257,7 @@ func (r *RequestBuilder) ExecuteRequest(requestURL string) (*http.Response, erro
 
 	client.Transport = transport
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := http.NewRequestWithContext(r.ctx, "GET", requestURL, nil)
 	if err != nil {
 		return nil, err
 	}
